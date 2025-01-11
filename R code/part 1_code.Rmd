@@ -1,0 +1,777 @@
+---
+title: ""
+author: ""
+output:
+  pdf_document:
+    toc: false
+    number_sections: false
+    fig_caption: true
+fontsize: 5pt
+geometry: "left=0.8cm,right=0.8cm,top=1cm,bottom=2cm"
+header-includes:
+   - \usepackage{booktabs}
+   - \usepackage{graphicx}
+   - \usepackage{amsmath}
+   - \usepackage{dsfont}
+---
+
+\noindent\rule{\textwidth}{2pt} 
+\begin{center}
+  \textbf{\LARGE Statistical Analysis of BIXI Montréal Bike Rental Patterns}
+\end{center}
+\vspace{-1em}
+\begin{center}
+\end{tabular}
+\end{center}
+\vspace{-2em}
+\noindent\rule{\textwidth}{1pt} 
+
+
+```{r setup, include=FALSE}
+# Load required packages
+
+# Output path for plots
+output_dir <- "Plots"
+
+# Set CRAN mirror
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+
+# Load required packages
+if (!requireNamespace("here", quietly = TRUE)) {
+  install.packages("here")
+}
+install.packages("here")
+library("here")
+source(file = here("Library", "Packages.r"))
+```
+\vspace{-1.5em}
+## Introduction 
+\vspace{-0.5em}
+BIXI Montréal is a non-profit organization that manages a bike sharing system in the metropolitan area. For the first part of this project, we will conduct an analysis of open access data on BIXI bike rentals. 
+
+\vspace{-1.5em}
+## Explanatory Data Analysis
+\vspace{-0.5em}
+In our journey to uncover patterns in BIXI bike-sharing data, we begin by asking a fundamental question: How do users interact with the service throughout the day? In the plot below, we illustrate the distribution of rides taken at various hours, revealing a compelling story. It indicates that the majority of the utilization made by BIXI users falls within the conventional morning and evening rush-hour windows. This peak utilization period reflects the travel patterns of Montreal commuters, as bike-sharing emerges as a practical alternative to other transportation modes during times of heavy congestion. Outside of these peak times, bike usage tapers off and would likely see a shift towards more leisure usage during off-peak hours.
+
+```{r dataset manipulations for plots, include=FALSE}
+bixi_data <- read.csv(here("Data", "MATH60604A-project-bixi_part1_team1.csv"))
+
+# FACTORS
+
+# Change the categorical data into numerical 
+# Convert weekdays into factor (e.g., Friday = 5)
+bixi_data$wday <- factor(bixi_data$wday, levels = c("Sunday", "Monday", 
+                                                    "Tuesday", "Wednesday", 
+                                                    "Thursday", "Friday", 
+                                                    "Saturday"))
+
+# Convert mem into factor
+bixi_data$mem <- factor(bixi_data$mem, levels = c(0, 1))
+
+# Convert rushhour into factor
+bixi_data$rushhour <- factor(bixi_data$rushhour, levels = c(1, 2, 3), labels = c("AM", "PM", "Regular"))
+
+# Combine AM and PM into one "Rush Hour" category in a temporary column
+bixi_data <- bixi_data %>%
+  mutate(rushhour_combined = ifelse(rushhour %in% c("AM", "PM"), "Rush Hour", "Non-Rush Hour"))
+
+# DATES
+# Convert the dep into date/time
+# Convert 'dep' to datetime if it's not already in POSIXct format
+bixi_data$dep <- as.POSIXct(bixi_data$dep, format="%Y-%m-%d %H:%M:%S")
+
+# Create a separate 'date' column
+bixi_data$date <- as.Date(bixi_data$dep)
+
+# Create a separate 'time' column
+bixi_data$time <- format(bixi_data$dep, format="%H:%M:%S")
+# Extract "day of year" (i.e., MM-DD format without the year)
+bixi_data$doy <- strftime(bixi_data$date, format="%m-%d")
+
+# Extract the hour from the dep column
+bixi_data$hour <- format(as.POSIXct(bixi_data$dep, format="%Y-%m-%d %H:%M:%S"), "%H")
+bixi_data$hour <- factor(bixi_data$hour)  # Ensure it's treated as numeric
+
+# Create a dummy variable for weekdays
+bixi_data <- bixi_data %>%
+  mutate(weekday_dummy = ifelse(wday %in% c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"), 1, 0))
+
+# Extract the month
+bixi_data$month <- format(as.Date(bixi_data$dep), "%m")  # Extract month as "01", "02", etc.
+
+# Convert month to a factor
+bixi_data$month <- factor(bixi_data$month, levels = c("01", "02", "03", "04", "05", "06", 
+                                                      "07", "08", "09", "10", "11", "12"), 
+                          labels = c("Jan", "Feb", "Mar", "Apr", "May", 
+                                     "Jun", "Jul", "Aug", "Sep", "Oct", 
+                                     "Nov", "Dec"))
+# Bin Ride durations
+bixi_data$dur_min_bin <- floor(bixi_data$dur / 60)  
+
+# Filter the dataset to only include weekdays (Monday to Friday)
+weekdays_only <- bixi_data[bixi_data$wday %in% c("Monday", "Tuesday", 
+                                                 "Wednesday", "Thursday", 
+                                                 "Friday"), ]
+
+summary_data <- bixi_data %>%
+  group_by(temp, mem) %>%
+  summarise(count = n(), .groups = 'drop')  # Count number of rides
+
+# Create precipitation bins
+prec_summary_data <- bixi_data %>%
+  mutate(prec_bin = cut(prec, breaks = seq(0, 30, by = 2), include.lowest = TRUE))
+```
+
+```{r bixi rides analysis, include=FALSE}
+
+# Bar plot for count of rides by hour
+p1 <- ggplot(weekdays_only, aes(x = hour, fill = rushhour)) +
+  geom_bar(binwidth = 1) +
+  labs(title = "Count of Bixi Rides by Weekday Hours", x = " ", y = "Count of Rides", fill = "Rush Hour") +
+  theme_minimal() +
+  scale_fill_manual(values = c("#6ECEB2", "#005EB8", "grey"))
+
+# Box plot for duration by hour
+p2 <- ggplot(weekdays_only, aes(x = hour, y = dur, fill = rushhour)) +
+  geom_boxplot(outlier.colour = "black", outlier.shape = 1) +
+  labs(title = "Duration by Hour of the Weekday", 
+       x = "Hour of the Day", 
+       y = "Duration (seconds)") +
+  theme_minimal() +
+  scale_fill_manual(values = c("#6ECEB2", "#005EB8", "grey")) +
+  theme(legend.position = "none") 
+
+bixi_ride_analysis_plot <- p1 / p2 + plot_layout(guides = "collect") + 
+  plot_annotation(title = "Bixi Rides Analysis by Hour")
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "bixi_ride_analysis_plot.png"), plot = bixi_ride_analysis_plot)
+```
+
+```{r bixi rides analysis plots, fig.width=8, fig.height=5, echo=TRUE}
+bixi_ride_analysis_plot
+```
+
+The exciting aspects of the BIXI service have to do with the difference in behavior amongst members and non-members. By comparing the trip durations amongst the two groups, we notice that non-members take longer trips. The *Membership Distribution* plot shows that members, many of whom likely use BIXI as part of their commute, take shorter, more efficient rides. Non-members seem to use BIXI much more casually, taking longer trips, which may be good for recreation or sightseeing. This presents an important divide between casual and committed users regarding membership plans and incentives. (Further breakdown for AM, PM, and rush hour duration are appended to Business Question 1 Analysis.)
+
+```{r balance check categorical, include=FALSE}
+#Bar plot showing count of rides per weekday
+rides_weekday_plot <- ggplot(bixi_data, aes(x = wday)) +
+  geom_bar(fill = "lightgrey", color = "black") +
+  labs(title = "Count of Bixi Rides by Weekday", x = "Weekday", y = "Count of Rides") +
+  theme_minimal()
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "rides_weekday_plot.png"), plot = rides_weekday_plot)
+
+
+# Bar plot for membership (mem) with different colors for each class
+mem_dist_plot <- ggplot(bixi_data, aes(x = factor(mem), fill = factor(mem))) +  
+  geom_bar(color = "black") +  
+  labs(title = "Membership Distribution", x = "Membership", y = "Count") +
+  scale_fill_manual(values = c("0" = "lightgrey", "1" = "#005EB8")) +  
+  theme_minimal() 
+
+dur_mem_box_plot <- ggplot(bixi_data, aes(x=mem, y=dur, fill=mem)) +
+  geom_boxplot() +
+  labs(title="Trip Duration by Membership Status",
+       x="Membership Status",
+       y="Trip Duration (seconds)") +
+  scale_color_manual(labels = c("Non-member", "Member")) + 
+  theme_minimal()
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "mem_dist_plot.png"), plot = mem_dist_plot)
+ggsave(filename = file.path(output_dir, "dur_mem_box_plot.png"), plot = dur_mem_box_plot)
+```
+
+```{r mem dist plot eda, fig.height=2, fig.width=8, echo=TRUE}
+dur_mem_box_plot
+```
+We further analyze the explanatory variables by checking the balance of categorical variables such as the number of rides across other days of the week. As can be seen from [Appendix A](#appendix-a), the number of rides is quite well distributed across all weekdays. [Appendix C](#appendix-c) also describes the raw data in detail with the added holiday dates for the year 2021. These insights ensure that no single day or set of variables dominates the data and therefore provide a very sound basis for statistical modeling.
+
+The other factor to take into consideration, as we dig deeper, revolves around weather. Montreal is an unpredictable city in terms of climate, with this having the potential to have a big impact on how and when people will make use of BIXI. By again linking temperature and precipitation with the frequency of trips, it becomes very easy to draw a pattern from it. Most trips happen in comfortable temperatures—between 15°C and 25°C. The *Count of Rides by Precipitation Bins* plot shows the distribution of temperature during trips. Below or above this comfortable range, bike usage really declines, with the fewest trips taken during spikes of hot or cold. The *Count of Rides by Temperature and Membership Status* plot also shows that even light precipitation discourages bikers, as rainfall over 5 mm is associated with substantially fewer trips. Such weather-based comprehension implies that BIXI users are sensitive to environmental conditions. This calls for a correlation analysis of weather variables with trip duration in detail, found in [Appendix D](#appendix-d).
+
+```{r count of rides by precipitation bins, include=FALSE}
+# Create the plot with bins
+count_prec_plot <- ggplot(prec_summary_data, aes(x = prec_bin, fill = factor(mem))) +  
+  geom_bar(position = "dodge") +  
+  labs(title = "Count of Rides by Precipitation Bins", 
+       x = "Precipitation Bins (mm)", 
+       y = "Count of Rides", 
+       fill = "Membership Status") +
+  scale_fill_manual(values = c("0" = "lightgrey", "1" = "#005EB8")) +  
+  theme_minimal()
+
+count_temp_mem_plot <- ggplot(summary_data, aes(x = temp, y = count, group = factor(mem), color = factor(mem))) +
+  geom_line(size = 1) +  
+  labs(title = "Count of Rides by Temperature and Membership Status", 
+       x = "Temperature (°C)", 
+       y = "Count of Rides", 
+       color = "Membership Status") +
+  scale_color_manual(values = c("0" = "lightgrey", "1" = "#005EB8")) +  
+  theme_minimal()  
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "count_temp_mem_plot.png"), plot = count_temp_mem_plot)
+ggsave(filename = file.path(output_dir, "count_prec_plot.png"), plot = count_prec_plot)
+```
+
+```{r plot above printed, fig.height=4, fig.width=9, echo=TRUE}
+grid.arrange(count_prec_plot, count_temp_mem_plot, ncol=1)
+```
+In general, the exploratory analysis provides a rich qualitative description of how BIXI is used. Each of membership status, weather, and time of day play distinct roles in shaping how and when people use the service. The insights provided will not only guide our next steps in statistical modeling but also have valuable implications for BIXI's operational strategy—optimizing bike availability during peak hours or tailoring marketing efforts to different users. This data seems to tell a story of consistency and adaptability, where at any given time of day, convenience and weather dictate the rhythm at which BIXI operates.
+
+```{r dur distribution, include=FALSE}
+# Plotted in next section
+dur_hist_plot <- ggplot(bixi_data, aes(x = dur)) +
+  geom_histogram(bins = 30, fill = "#005EB8", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Trip Duration", x = "Duration (seconds)", y = "Frequency") +
+  theme_minimal()
+
+# Save plot to Outputs
+ggsave(filename = file.path(output_dir, "dur_histogram_plot.png"), plot = dur_hist_plot)
+```
+
+\vspace{-1.5em}
+## Preprocessing and Model Preparation
+\vspace{-0.5em}
+Before diving into the business questions, we decided to preprocess the data and decide which variables are most important for modelling. Starting with `dep`, it represents the departure time of the BIXI users and is initially stored in datetime format. We extracted the date partition using the `as.Date` function for further processing. The `mem` variable indicates membership status and is a binary variable. We converted it to a categorical factor with two levels: `Non-Member` and `Member`. The `wday` variable represents the day of the week and is categorized accordingly (e.g., Monday, Tuesday, ...). We transformed it into a categorical variable for easier manipulation. With regards to the weather variables (`temp` and `prec`), these are both numerical. We converted `prec` into a binary variable because it contained many zero entries, indicating no precipitation. This is shown in the plot found in [Appendix D](#appendix-d). This conversion results in `prec=1` when `prec>0` and 0 otherwise. The rationale is that users are likely more concerned about whether it is raining rather than the specific amount of rain. Moving onto `rushhour`, there is no concept of rush hour on holidays. With that, when `weekend=1`, we set `rushhour=NonPeak`. For weekdays, `rushhour` is classified as `AM` for morning rush hour (value of 1), `PM` for evening rush hour (value of 2), and `NonPeak` for all other times (value of 3). The `dur` variable represents the trip duration in seconds and is retained as a numeric variable. 
+
+Then, we created a new binary variable called `weekend` to identify if a particular date is a holiday or falls on a weekend. This transformation was implemented to capture user behavior patterns, as people may use BIXI differently on weekends or holidays compared to regular weekdays. For instance, usage during weekdays might be higher due to the large number of users commuting to work. As a last step for the preprocessing, we removed the variables that we deemed as unnecessary for modelling. We removed `wday` and `date` as they were not required. 
+
+```{r preprocessing, include=FALSE}
+# Define holiday dates
+holiday_dates <- as.Date(c(
+  "2021-01-01", # New Year's Day
+  "2021-04-02", # Good Friday
+  "2021-04-05", # Easter Monday
+  "2021-05-24", # National Patriots' Day
+  "2021-06-24", # Saint-Jean-Baptiste Day
+  "2021-07-01", # Canada Day
+  "2021-09-06", # Labour Day
+  "2021-09-30", # National Day for Truth and Reconciliation
+  "2021-10-11", # Thanksgiving
+  "2021-11-11", # Remembrance Day
+  "2021-12-27"  # Christmas
+))
+
+# Convert 'dep' to date and factor variables
+bixi_data <- bixi_data %>%
+  mutate(
+    dep = as.POSIXct(dep, format = "%Y-%m-%d %H:%M:%S"),
+    date = as.Date(dep),  # Create a new column with just the date
+    mem = factor(mem, levels = c(0, 1), labels = c("Non-Member", "Member")),
+    wday = factor(wday, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")),
+    
+    # Determine weekend status based on day of the week or if the date is a holiday
+    weekend = ifelse(wday %in% c("Saturday", "Sunday") | date %in% holiday_dates, 1, 0),
+    weekend = as.factor(weekend),
+    
+    temp = as.numeric(temp),
+    prec = as.numeric(prec),
+    prec = ifelse(prec > 0, 1, 0),
+    rushhour = ifelse(weekend==0 ,rushhour, 3),
+    rushhour = factor(rushhour, levels = c(1, 2, 3), labels = c("AM", "PM", "NonPeak")),
+    dur = as.numeric(dur)
+  ) %>%
+  dplyr::select(-wday, -date)  # Remove both 'wday' and 'date' columns
+```
+
+```{r base model, include = TRUE}
+base_model <- lm(dur ~ mem + temp + prec + rushhour + weekend + mem:prec + temp:prec, data = bixi_data)
+```
+Now that the data is preprocessed and we have removed redundant variables, let us briefly explain the base model. The base model (`base_model`) serves as the initial reference for understanding the relationship between the target variable (`dur`) and several explanatory variables. We included `mem`, `temp`, `prec`, `rushhour`, `weekend`, and relevant interaction terms to capture the potential influence of these factors on trip duration. The interaction terms considered are `mem:prec` and `temp:prec`. For `mem:prec`, it explores the influence of precipitation on members and non-members. For example, members might be less deterred by rain, given their commitment to biking, whereas non-members may opt for other forms of transportation when it rains. For `temp:prec`, it is justified since the likelihood of precipitation varies with temperature. Understanding how these two variables interact can provide insights into user behavior under different weather conditions. 
+
+```{r sample size check, include=FALSE}
+# Checking if the number of samples for each subcategory included in the model
+# Existing in our model (with interaction) is enough for estimating betas
+sample_size_interaction <- bixi_data %>%
+  group_by(mem, prec) %>%
+  summarise(sample_size = n(), .groups = 'drop')
+```
+
+Looking at the table in [Appendix B](#appendix-b), we see that the sample size for each combination is enough and therefore we can rely on the estimates of betas. Now, in order to assess how well the base model fits the data and whether it meets the assumptions of the linear regression model, we plotted Residuals vs. Fitted as well as the Q-Q plot. As mentioned previously and by observing these plots we can clearly see that the model does not fit the data well, nor does it meet the assumptions. Applying the Box-Cox transformation method enhances our model, as demonstrated in the `dur` histogram below. 
+
+```{r base model plots, include=FALSE}
+# Residuals vs Fitted
+residual_fitted_plot <- ggplot(data = data.frame(Fitted = base_model$fitted.values, Residuals = base_model$residuals),
+                               aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, col = "red", size = 1.5) +
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "base_model_residuals_fitted_plot.png"), plot = residual_fitted_plot)
+
+# Q-Q Plot
+qq_plot <- ggplot(data = data.frame(sample = base_model$residuals), aes(sample = sample)) +
+  stat_qq() +
+  stat_qq_line(col = "red", size = 1.5) +
+  labs(title = "Q-Q Plot of Residuals", x = "Theoretical Quantiles", y = "Sample Quantiles")
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "base_model_qq_plot.png"), plot = qq_plot)
+```
+
+```{r BoxCox transformation, include=FALSE}
+# Applying Box-Cox transformation
+boxcox_result<- car::boxCox(base_model)
+
+# Finding the optimal lambda value
+lambda_opt <- boxcox_result$x[which.max(boxcox_result$y)]
+cat("Optimal Lambda: ",lambda_opt,"\n")
+
+# Transforming the data using the optimal lambda (lambda_opt)
+bixi_data$dur_boxcox <-(bixi_data$dur^lambda_opt - 1) /lambda_opt 
+
+dur_boxcox_hist_plot <- ggplot(bixi_data, aes(x = dur_boxcox)) +
+  geom_histogram(binwidth = 0.5, fill = "#005EB8", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Transformed Trip Duration",
+       x = "Transformed Duration",
+       y = "Frequency") +
+  theme_minimal()
+
+# Save plot to Outputs
+ggsave(filename = file.path(output_dir, "dur_boxcox_histogram_plot.png"), plot = dur_boxcox_hist_plot)
+```
+
+```{r plotting histogram dur, fig.width= 9, fig.height = 2, echo=TRUE}
+grid.arrange(dur_hist_plot, dur_boxcox_hist_plot, ncol=2)
+```
+
+Now, looking at the Residuals vs. Fitted plot and Q-Q plot of the transformed base model below, we can see that it now roughly satisfies the assumptions of the linear regression model and fits the data much better! 
+
+```{r transformed base model plots, include=FALSE}
+base_model_transformed <- lm(dur_boxcox ~ mem + temp + prec + rushhour + weekend + mem:prec + temp:prec, data = bixi_data)
+
+# Residuals vs Fitted
+transformed_residual_fitted_plot <- ggplot(data = data.frame(Fitted = base_model_transformed$fitted.values, Residuals = base_model_transformed$residuals), aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, col = "#005EB8", size = 1) +
+  labs(title = "Transformed Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "base_model_transformed_residuals_fitted_plot.png"), plot = transformed_residual_fitted_plot)
+
+# Q-Q Plot
+transformed_qq_plot <- ggplot(data = data.frame(sample = base_model_transformed$residuals), aes(sample = sample)) +
+  stat_qq() +
+  stat_qq_line(col = "#005EB8", size = 1) +
+  labs(title = "Transformed Q-Q Plot of Residuals", x = "Theoretical Quantiles", y = "Sample Quantiles")
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "base_model_transformed_qq_plot.png"), plot = transformed_qq_plot)
+```
+
+```{r plotting_residual_vs_fitted, fig.width=8, fig.height=6, echo=TRUE}
+grid.arrange(residual_fitted_plot, transformed_residual_fitted_plot, qq_plot, 
+             transformed_qq_plot, ncol=2, 
+             top = "Comparison Between the Base and Transformed Model" )
+``` 
+
+```{r dur_boxcox and mem, include=FALSE}
+# Boxplot for Total Duration
+p1 <- ggplot(bixi_data, aes(x = mem, y = dur_boxcox)) +
+  geom_boxplot(fill=c("0" = "lightgrey", "1" = "#005EB8")) +
+  labs(title = "Total Duration", x = "Membership", y = "Duration")+
+  theme_minimal()
+
+# Bar plot for Number of AM Trips by Membership
+p2 <- ggplot(bixi_data %>% filter(rushhour == "AM"), aes(x = mem, y = dur_boxcox)) +
+  geom_boxplot(fill=c("0" = "lightgrey", "1" = "#005EB8")) +
+  labs(title = "Duration of AM Trips", x = "Membership", y = "Duration of AM trips")+
+  theme_minimal()
+
+# Bar plot for Number of PM Trips by Membership
+p3 <- ggplot(bixi_data %>% filter(rushhour == "PM"), aes(x = mem, y = dur_boxcox)) +
+  geom_boxplot(fill=c("0" = "lightgrey", "1" = "#005EB8")) +
+  labs(title = "Duration of PM Trips", x = "Membership", y = "Duration of PM trips") +
+  theme_minimal()
+
+# Box plot for rush hour rides by membership
+p4 <- ggplot(bixi_data %>% filter(rushhour_combined == "Rush Hour"), aes(x = factor(mem), y = dur_boxcox)) +
+  geom_boxplot(fill=c("0" = "lightgrey", "1" = "#005EB8")) +
+  labs(title = "Duration of Rush Hour Rides by Membership", 
+       x = "Membership", 
+       y = "Duration") + 
+  theme_minimal()
+
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "dur_boxcox_mem1_plot.png"), plot = p1)
+ggsave(filename = file.path(output_dir, "dur_boxcox_mem2_plot.png"), plot = p2)
+ggsave(filename = file.path(output_dir, "dur_boxcox_mem3_plot.png"), plot = p3)
+ggsave(filename = file.path(output_dir, "dur_boxcox_mem4_plot.png"), plot = p4)
+
+```
+
+Going forward, we will be using the transformed model, hence our new target variable is `dur_boxcox`. **In our testing, whenever we mention "duration of trip", we are referring to the transformed duration.**
+
+```{r exporting transformed dataset, include=FALSE}
+write.csv(bixi_data, "Data/preprocessed_boxcox.csv", row.names = FALSE)
+```
+
+\vspace{-1.5em}
+## Business Question 1: On average, do BIXI members have shorter trips than non-members? Are the results the same if one adjusts for weekend vs. non-weekend usage?
+\vspace{-0.5em}
+Here, we want to determine whether, on average, if BIXI members have shorter trips than non-BIXI members. The null hypothesis is that there's no difference in average trip duration between BIXI members and non-members ($H_o: \mu_{\text{members}} = \mu_{\text{non-members}}$). The alternative hypothesis is that BIXI members have a different average trip duration compared to non-members ($H_a: \mu_{\text{members}} \neq \mu_{\text{non-members}}$).
+
+We assessed how `dur_boxcox` varies across `mem` and deduced that membership tends to be generally lower than non-members. However, in the morning rush hours, there seems to be slightly more variability in members than non-members. 
+
+```{r dur_boxcox_mem_plots, fig.height=4, fig.width=10, echo=TRUE}
+grid.arrange(p1, p4, p2, p3, ncol = 2, top = "Comparison of Trip Durations by Membership Status")
+```
+
+```{r Q1 model, include=FALSE}
+model1 <- lm(dur_boxcox ~ mem + temp + prec + rushhour + weekend + mem:prec + temp:prec, 
+             data = bixi_data)
+```
+
+```{r Q1 summary, echo=TRUE}
+summary(model1)
+```
+Trips from members are `0.58` units shorter than non-members. This is statistically significant since `3.1e-09 < 0.001`. With that, on average, non-members' trips are longer than members' trips, and this difference is statistically significant. Referring to the *Membership Distribution* plot shown in [Explanatory Data Analysis](#explanatory-data-analysis), we can also see that non-members have a higher median trip duration compared to members, suggesting that, on average, non-members take slightly longer trips. Therefore, we reject the null hypothesis.
+
+Now, we will determine if the results are the same if we adjust for weekend vs. non-weekend usage. The null hypothesis is that there's no interaction between membership and weekend usage ($H_o: \beta_{\text{memNon-member:weekend1}} = 0$). The alternative hypothesis is that there is an interaction between membership and weekend usage ($H_a: \beta_{\text{memNon-member:weekend1}} \neq 0$).
+
+```{r Q1 P2, include=FALSE}
+model2 <- lm(formula = dur_boxcox ~ mem + temp + prec + rushhour + weekend + 
+    mem:prec + temp:prec + mem:weekend, data = bixi_data)
+
+# Estimated marginal means and pairwise comparison for 'mem' adjusted for 'weekend'
+emm_model2 <- emmeans(model2, specs = "mem", by = "weekend")
+contrast_model2 <- contrast(emm_model2, method = "pairwise")
+```
+
+```{r Q1 P2 summary, echo=TRUE}
+summary(model2)
+```
+
+The estimate of `memMember:weekend1` is `-0.404858` which means that on average, members' trip durations are `0.404858` units shorter on weekends compared to non-weekends. By including the interaction term (`mem:weekend`), we see that it is statistically significant at the 0.05 level (`0.0166 < 0.05`). Therefore, the relationship between `mem` and `dur_boxcox` changes depending on whether the trip occurs on a weekend or not.
+
+```{r Q1 contrast, echo=TRUE}
+summary(contrast_model2)
+```
+
+For `weekend = 0`, Non-Members, on average, have longer trip durations than members on non-weekends by `0.418` units, and this difference is statistically significant since `p-value` < 0.0001. For `weekend = 1`,  Non-Members, on average, have longer trip durations than members on weekends by `0.822` units, and this difference is statistically significant since `p-value` < `0.0001`. 
+
+These results illustrate that the difference in trip duration between non-members and members change on weekends and on non-weekends. This could imply that non-members use BIXI bikes more for leisurely, longer trips on weekends, while members might use them more for shorter trips. Therefore, we reject the null hypothesis since there is an interaction between between membership and weekend usage. The interaction term is statistically significant, and it provides valuable information about how the membership effect varies by weekend status, so it’s worth keeping in the model.
+
+\vspace{-1.5em}
+## Business Question 2: Are trip durations impacted by weather factors? In light of the results you obtain, should your initial model(s) be revisited?
+\vspace{-0.5em}
+The goal of this analysis is to determine whether weather variables, specifically temperature (`temp`) and precipitation (`prec`), have a significant impact on trip durations in the Bixi dataset. We initially included weather variables in our model and now aim to test whether simplifying the model by excluding these variables is justified. The hypothesis tests the significance of weather factors by comparing a full model (with weather variables) to a reduced model (without weather variables). 
+
+$$ 
+H_0: \, dur_{\text{transformed}} \sim \text{mem} + \text{rushhour} + \text{weekend}
+$$
+$$
+H_1: \, dur_{\text{transformed}} \sim \text{mem} + \text{rushhour} + \text{weekend} + \text{mem:prec} + \text{temp:prec}
+$$
+
+The initial, more complex model ($H_1$) was fitted, and the following results were obtained: 
+
+```{r weather model transformed, include=FALSE}
+weather_model_transformed <- lm(dur_boxcox ~ mem + temp + prec + rushhour +
+                                             weekend + temp:prec + mem:prec, data = bixi_data)
+```
+
+```{r weather model transformed summary, echo=TRUE}
+summary(weather_model_transformed)
+```
+
+Regarding the key findings from the table above, the coefficients for the weather variables (`temp`,`prec`) and their interaction terms (`mem:prec`,`temp:prec`) are not statistically significant (`p-value > 0.05`). Other factors, such as membership (`mem`) and weekend status (`weekend`), show significance, but weather-related predictors do not appear to meaningfully contribute to predicting trip duration.
+
+To formally test whether excluding the weather variables from the model is justified, we perform an ANOVA test, which compares the nested models $H_0$ (simplified model without weather factors) and $H_1$ (initial model with weather factors). The F-statistic is `1.1138` with a p-value of `0.3484`. Since the p-value is much higher than the significance level of `0.05`, there is not enough evidence to reject the null hypothesis. In order to have a more concrete test, we will perform the test shown below. 
+
+```{r q2 answer, include=FALSE}
+base_model_transformed <- lm(dur_boxcox ~ mem + rushhour + weekend, data = bixi_data)
+anova_results = anova(base_model_transformed, weather_model_transformed)
+```
+
+```{r q2 answer anova, echo=TRUE}
+anova_results
+```
+Based on the ANOVA test results, the weather variables (`temp` and `prec`) do not significantly improve the model when included. The simplified model ($H_0$, excluding weather variables) fits the data just as well as the more complicated model ($H_1$) that includes them. Therefore, revisiting the initial model is recommended, as excluding weather variables does not harm the model's performance. The simplified model (without weather factors) provides an equally good fit and is a more efficient choice for modeling trip durations in the Bixi dataset.
+
+\vspace{-1.5em}
+## Business Question 3: Do rush hour trip durations differ from those during non peak hours (i.e., not rush hour) during weekdays? Are there differences between the AM and PM rush hour weekday usage, respectively?
+\vspace{-0.5em}
+In this question we should narrow down our analysis to only the partition of the dataset that is in the weekday (& not holiday). Based on our analysis from Question 2, we concluded that including weather covariates in the model don’t do us any good, so the simpler model is better. Therefore, the model that we are dealing with is the following:
+
+$$
+dur_{\text{transformed}} = \hat{\beta_0} + \hat{\beta_1}\text{mem} + \hat{\beta_2}\text{rushhour}
+$$
+
+In which `mem` and `rushhour` are respectively binary and categorical variables of whether the user is a member and what state of the day they used the BIXI bikes. By fitting the linear regression model, the result is as follows: 
+
+```{r rushhour, include=FALSE}
+bixi_weekday <- bixi_data %>%
+  filter(weekend == 0)
+rushhour_transformed_model <- lm(dur_boxcox ~ mem + rushhour, 
+                                 data = bixi_weekday)
+```
+
+```{r rushhour summary, echo=TRUE}
+summary(rushhour_transformed_model)
+```
+
+Meaning that: 
+$$ 
+dur_{\text{transformed}} = 8.96 + 0.43 \cdot \mathds{1}_{\text{mem=Non-member}} + 0.1 \cdot \mathds{1}_{\text{rushhour=Non-Member}} + 0.11 \cdot \mathds{1}_{\text{rushhour=PM}} 
+$$
+
+We are asked to do a test for the following subjects (only for the subset of data that is non-holiday):
+
+$$
+H_0: \, \mu_{\text{rushhour}} = \mu_{\text{NonPeak}}
+$$
+$$
+H_a: \, \mu_{\text{rushhour}} \neq \mu_{\text{NonPeak}}
+$$
+$$
+H_0: \, \mu_{\text{AM}} = \mu_{\text{PM}} 
+$$ 
+$$
+H_a: \, \mu_{\text{AM}} \neq \mu_{\text{PM}}
+$$
+
+Note that for the first test, as it’s given in the hint, we will follow contrast testing via calculating estimated marginal means. Our test would be transformed to:
+
+$$
+H_0: \, 0.5\mu_{\text{AM}} + 0.5\mu_{\text{PM}} - \mu_{\text{NonPeak}} = 0
+$$ 
+$$
+H_a: \, 0.5\mu_{\text{AM}} + 0.5\mu_{\text{PM}} - \mu_{\text{NonPeak}} \neq 0
+$$
+
+Test 2 also can be included in the scope of testing contrasts:
+
+$$
+H_0: \, \mu_{\text{AM}} - \mu_{\text{PM}} = 0
+$$
+$$
+H_a: \, \mu_{\text{AM}} - \mu_{\text{PM}} \neq 0 
+$$
+
+The results are: 
+
+```{r rushhour 2, include=FALSE}
+# Obtain estimated marginal means for the 'rushhour' variable in the model
+emm_rushhour <- emmeans(rushhour_transformed_model, specs = "rushhour")
+
+# Define custom contrasts to test:
+# 1. (AM and PM) vs Non-Peak
+# 2. AM vs. PM
+contrast_list <- list(
+  "RushHour_vs_NonPeak" = c(0.5, -1, 0.5),  # Average of AM and PM vs. Non-Peak
+  "AM_vs_PM" = c(1, 0, -1)                  # AM vs. PM
+)
+
+# Calculate contrasts for the defined comparisons
+contrast_results <- contrast(emm_rushhour, method = contrast_list)
+```
+
+```{r rushhour 3, echo=TRUE}
+summary(contrast_results)
+```
+
+According to the results, in the significance level of $\alpha$ = 5%, the differences aren’t significant, meaning that we cannot find enough evidence to reject the null hypothesis. Consequently, with regards to the weekdays, we can deduce that there is no significant difference between duration time of people in the `rushhour` and in the `NonPeak` hours. Moreover, there is also not a significant difference in duration in AM and PM `rushhours`. We can also analyze with the estimated marginal means plot: 
+
+```{r estimated marginal means plot, fig.height=2, fig.width=7, echo=TRUE}
+plot(emm_rushhour, comparisons = TRUE)
+```
+
+The red arrows connecting the categories indicate pairwise comparisons of trip durations. The overlap of confidence intervals suggests that the differences between the estimated means of these categories is not statistically significant. The AM and PM categories have almost identical estimated mean trip durations, as indicated by the significant overlap of their confidence intervals. The estimated mean of the transformed trip durations for AM and PM appear to be very similar, which aligns with the previous analysis where the contrast `AM_vs_PM` was not statistically significant. The `Non-Peak` category has a slightly higher mean trip duration compared to AM and PM, but the overlap of the confidence intervals suggests that this difference might not be significant.
+
+In our initial model for this question and our modified model, the Q-Q plot and distribution of the residuals are as follows:
+
+```{r initial model comparison, include=FALSE}
+# Residuals vs Fitted
+rushhour_residual_fitted_plot <- ggplot(data = data.frame(Fitted = rushhour_transformed_model$fitted.values, Residuals = rushhour_transformed_model$residuals), aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, col = "red", size = 1) +
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "Q3_rushhour_residual_fitted_plot.png"), plot = rushhour_residual_fitted_plot)
+
+# Q-Q Plot
+rushhour_qq_plot <- ggplot(data = data.frame(sample = rushhour_transformed_model$residuals), aes(sample = sample)) +
+  stat_qq() +
+  stat_qq_line(col = "red", size = 1) +
+  labs(title = "Q-Q Plot of Residuals", x = "Theoretical Quantiles", y = "Sample Quantiles")
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "Q3_rushhour_qq_plot.png"), plot = rushhour_qq_plot)
+
+
+# Modified Model
+rushhour_transformed_final <- lm(dur_boxcox ~ mem, data = bixi_weekday)
+
+# Residuals vs Fitted
+rushhour_transformed_residual_fitted_plot <- ggplot(data = data.frame(Fitted = rushhour_transformed_final$fitted.values, Residuals = rushhour_transformed_final$residuals), aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, col = "#005EB8", size = 1) +
+  labs(title = "Modified Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "Q3_rushhour_transformed_residual_fitted_plot.png"), plot = rushhour_transformed_residual_fitted_plot)
+
+# Q-Q Plot
+rushhour_transformed_qq_plot <- ggplot(data = data.frame(sample = rushhour_transformed_final$residuals), aes(sample = sample)) +
+  stat_qq() +
+  stat_qq_line(col = "#005EB8", size = 1) +
+  labs(title = "Modified Q-Q Plot of Residuals", x = "Theoretical Quantiles", y = "Sample Quantiles")
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "Q3_rushhour_transformed_qq_plot.png"), plot = rushhour_transformed_qq_plot)
+```
+
+```{r Q3 comparison grid, fig.width=10, fig.height=5, echo=TRUE}
+grid.arrange(rushhour_residual_fitted_plot, 
+             rushhour_transformed_residual_fitted_plot, rushhour_qq_plot, 
+             rushhour_transformed_qq_plot,  ncol=2, 
+             top="Comparison Between Initial and Modified Model")
+```
+
+Observing the initial model plots above, the hypothetical mean of zero we assume for the residuals fit their true mean. The residuals are fairly normal in the middle section, as most points lie close to the diagonal line. The residuals show heavy tails in both the left and right extremes, indicating the presence of more extreme values than expected under a normal distribution. The possible actions can be to apply a transformation to reduce the effect of heavy tails or further investigate the identified outliers to understand their impact on the model and consider potential remediation (e.g., robust regression, transformation, or exclusion). This analysis suggests that while the residuals seem mostly normal, there are deviations in the tails that could impact the overall model fit. Adjusting for these deviations might improve the model’s performance and validity of inferences.
+
+\vspace{-1.5em}
+## Conclusion 
+\vspace{-0.5em}
+To summarize our solutions to the business questions, on average, non-members take slightly longer trips than members. If we were to adjust for weekend vs. non-weekend usage, non-members, on average, also take longer trips on weekends compared to non-weekends. With regards to weather factors, they do not significantly improve the model as trip durations are not impacted by them. With that, the initial model should be revisited and modified to not include weather factors. Lastly, there is no significant difference between duration time of people in the `rushhour` and in the `NonPeak` hours. Moreover, there is also not a significant difference in duration in AM and PM `rushhours`. 
+
+With regards to the limitations, according to [Appendix B](#appendix-b), the number of samples we have in each subcategory are not even roughly equal (we have more data on `prec=0` than `prec=1`), which makes the dataset imbalanced. Hence, the betas that we estimate are prone to overfitting to the case where `prec = 0`. Consequently, we would experience bias in our predictions with this data. In the Transformed Q-Q Plot of Residuals found in the [Preprocessing and Model Preparation](#preprocessing-and-model-preparation) section, there are some deviations in the tails that might affect our linear regression assumptions that would be worth investigating and solving to have better and more reliable estimations.
+
+In our project, contributions were evenly distributed among team members, allowing everyone to engage with a specific question while also reviewing another. The tasks were distributed among team members to ensure efficient collaboration. **Olivia** played a key role in setting up the report, contributing to the Exploratory Data Analysis (EDA) report, and was responsible for the coding and analysis for Business Question 1, as well as the final review of the report. **Olivier** was tasked with the coding and analysis for Business Question 2 and the EDA analysis, while also assisting with the report's reproducibility review. **Gilles** was responsible for helping with the Box-Cox transformation and helping with EDA. He also contributed to the final review of the report. **Pedram** was responsible for the coding and analysis for Business Question 3, contributed to EDA analysis, and helped with the final review of the report. Team meetings were held at key stages to conclude the EDA validity and business questions, ensuring alignment across the group. All members played an essential role in bringing different aspects of the project to completion.
+
+\newpage
+# Appendix
+
+## Appendix A 
+
+**Verification of Balanced Data**
+
+```{r rides weekday plot, fig.width=5, fig.height=2, echo=TRUE}
+rides_weekday_plot
+```
+
+```{r mem balanced, fig.width=7, fig.height=4, echo=TRUE}
+mem_dist_plot
+```
+
+\newpage
+## Appendix B
+
+```{r sample size interaction, echo=TRUE}
+# Display the resulting data frame
+print(sample_size_interaction)
+```
+
+
+
+\newpage
+## Appendix C
+
+**Analyzing the Raw Data**
+
+The raw data consist of the records of every BIXI rental for the 2021 season. In particular, each observation consists in an individual trip and includes the following information: the start date and time, the start station, the end date and time, the end station, the total trip duration, and a variable indicating whether the user is a BIXI member. Only trips under 2 hours in the months extending from May to October, inclusively, are considered for the statistical analysis here. Note that in the 2021 season, members could use a regular BIXI for up to 45 minutes for free, and obtained rebates for electric bike rentals or longer trips. In addition to BIXI usage, weather information was merged with the BIXI data to provide the daily average temperature (in ◦C) and the daily cumulated amount of precipitation (in mm).
+
+```{r raw data, include=TRUE}
+bixi_data <- read.csv(here("Data", "MATH60604A-project-bixi_part1_team1.csv"))
+
+# Get the head 
+kable(head(bixi_data))
+
+# Get the summary 
+kable(summary(bixi_data))
+```
+
+\newpage
+**Holidays**
+
+Holidays that are incorporated for the 2021 calendar year: 
+
+* New Year's Day: January 1
+
+* Good Friday: April 2
+
+* Easter Monday: April 5
+
+* National Patriots' Day: May 24
+
+* Saint-Jean-Baptiste Day: June 24
+
+* Canada Day: July 1 
+
+* Labour Day: September 6
+
+* National Day for Truth and Reconciliation: September 30
+
+* Thanksgiving: October 11
+
+* Remembrance Day: November 11
+
+* Christmas (Observed): December 27
+
+\newpage
+## Appendix D
+
+**Analyzing Correlations between Precipitation and Temperature**
+
+In this section, we assess the contribution of two most significant weather variables that is, precipitation (`prec`) and temperature (`temp`), towards trip duration. Precisely, we want to know whether these variables will make a substantial improvement in the model.
+
+Looking at the plots below, we see that both `prec` and `temp` do not seem to be symmetric, nor look like a normal distribution. We assessed the correlation between `prec` and `temp` at 0.05 significance level and obtained `p-value = 0.05088`, which is only slightly greater than $\alpha$. We fail to reject the null hypothesis.
+
+```{r prec and temp, include=FALSE}
+# Histogram for Temperature
+temp_hist_plot <- ggplot(bixi_data, aes(x = temp)) +
+  geom_histogram(binwidth = 2, fill = "#005EB8", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Temperature", x = "Temperature (°C)", y = "Count")
+
+# Histogram for Precipitation
+prec_temp_hist_plot <- ggplot(bixi_data, aes(x = prec)) +
+  geom_histogram(binwidth = 5, fill = "#005EB8", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Precipitation", x = "Precipitation (mm)", y = "Count")
+
+# Save plot in Outputs
+ggsave(filename = file.path(output_dir, "temp_hist_plot.png"), plot = temp_hist_plot)
+ggsave(filename = file.path(output_dir, "prec_temp_hist_plot.png"), plot = prec_temp_hist_plot)
+```
+
+```{r plotting prec and temp, fig.width=10, fig.height=3, echo=TRUE}
+grid.arrange(temp_hist_plot, prec_temp_hist_plot, ncol=2)
+```
+
+Skewness in the distributions of temperature and precipitation can be observed from their respective histograms. Temperature exhibits a near-normal distribution with a slight positive skew, while precipitation is heavily right-skewed due to most days receiving little or no rainfall. A distribution as such gives reasonable indication that these variables may not behave in a linear manner with respect to trip duration and thus should be further investigated through correlation tests.
+
+```{r pearson_correlation, echo=TRUE}
+# Pearson correlation tests
+pearson_test_temp_dur <- cor.test(bixi_data$temp, bixi_data$dur, method = "pearson")
+pearson_test_prec_dur <- cor.test(bixi_data$prec, bixi_data$dur, method = "pearson")
+pearson_test_temp_prec <- cor.test(bixi_data$temp, bixi_data$prec, method = "pearson")
+
+# Output the results
+cat("\nCorrelation P between Temperature and Duration:\n"); print(pearson_test_temp_dur)
+cat("Correlation P between Precipitation and Duration:\n"); print( pearson_test_prec_dur)
+cat("Correlation P between Temperature and Precipitation:\n"); print(pearson_test_temp_prec)
+```
+
+Tests of Pearson correlation have been conducted in order to check the linear relations concerning temperature, precipitation, and trip duration. The correlation between `temp` and `dur` is `-0.016`, the p-value is `0.559`, hence very weak and not statistically significant. Also, `prec` and `dur` is related at `-0.049`, correlating with a p-value of `0.081`. This indicates a weak negative correlation that is not statistically significant. Finally, the correlation between `temp` and `prec` was `0.055` (p-value = `0.051`), implying a very weak positive correlation between the two weather variables, though this result is borderline significant.
+
+The low value of the correlations among the weather variables with the trip duration variable indicates that the weather factors (temperature and precipitation) do not linearly affect the duration of BIXI trips. Besides that, the marginal significance in the relationship between temperature and precipitation is not strong enough to prove the inclusion of these weather variables in the final model.
+ 
+Moreover, based on Business Question 2, we further perform an ANOVA analysis on the model with and without weather variables. With the p-value equal to `0.348`, the ANOVA test shows that adding weather variables does not add much value to the model. Therefore, the inclusion of weather parameters in the model is redundant, as simplicity in the model would not be detrimental to the accuracy in the predictions.
+
+To further investigate the association between the membership status and weather, we also analyzed whether BIXI members tend to ride under more extreme weather conditions and are more likely to ride regardless of the temperature or precipitation. To find the relationship between ride frequency with increasing levels of precipitation for members and non-members, we have binned our data based on precipitation. From the plot below, we can see that for increasing precipitation, members and non-members both have tendencies to reduce rides. The number of rides drops significantly at precipitation more than 10 mm. However, members seem a bit resilient, and during moderate precipitation of 5–10 mm, rides are higher compared to non-members.
+
+Similarly, we looked at how ride frequency varies with temperature. Members and non-members both display a similar pattern, with a peak in bike usage occurring when temperatures are between 15–25°C, which represents the most favorable biking conditions. As temperatures drop below 10°C or exceed 25°C, the number of rides decreases for both groups. However, members again show slightly higher resilience, maintaining more frequent rides in both colder and hotter conditions compared to non-members.
+
+```{r plotting mem prec temp, fig.width=10, fig.height=4, echo=TRUE}
+grid.arrange(count_prec_plot, count_temp_mem_plot, ncol=1)
+```
+
+To conclude, while both members and non-members are affected by weather conditions, members show a slight tendency to ride under less favorable weather conditions, particularly in moderate rain and more extreme temperatures. This behavior could be attributed to members' commitment to using BIXI bikes as a primary mode of transportation, compared to non-members who might use the service more sporadically or leisurely, opting for other modes of transport under adverse weather conditions.
